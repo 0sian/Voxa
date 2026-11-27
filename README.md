@@ -107,6 +107,10 @@ Minimum Android 10 (API 29). Versions are pinned in `gradle/libs.versions.toml`.
 - [ ] Series and collections for audiobooks
 - [ ] Monochrome launcher icon
 
+## License
+
+[MIT](LICENSE). The bundled JetBrains Mono font keeps its own licence, the SIL Open Font License, in [`licenses/`](licenses/JetBrainsMono-OFL.txt).
+
 ## Credits
 
 Set in [JetBrains Mono](https://www.jetbrains.com/lp/mono/) (SIL Open Font License, see `licenses/`). Built on [Media3](https://developer.android.com/media/media3), [Room](https://developer.android.com/training/data-storage/room) and [Coil](https://coil-kt.github.io/coil/).
