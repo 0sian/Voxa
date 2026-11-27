@@ -72,9 +72,9 @@ import dev.osianj.voxa.data.Show
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-private val HomeTabs = listOf("PODCASTS", "EPISODES", "DOWNLOADS")
+private val HomeTabs = listOf("PODCASTS", "BOOKS", "EPISODES", "DOWNLOADS")
 
-/** voxa wordmark, Podcasts / Episodes / Downloads tabs. */
+/** voxa wordmark, Podcasts / Books / Episodes / Downloads tabs. */
 @Composable
 fun HomeScreen(
     vm: VoxaViewModel,
@@ -143,7 +143,8 @@ fun HomeScreen(
                 onAddRss = { showAddDialog = true },
                 onOpenShow = onOpenShow,
             )
-            1 -> EpisodesTab(
+            1 -> BooksTab(vm = vm, onOpenShow = onOpenShow)
+            2 -> EpisodesTab(
                 vm = vm, ps = ps,
                 episodes = vm.recentEpisodes.collectAsState().value,
                 header = "RECENT EPISODES",

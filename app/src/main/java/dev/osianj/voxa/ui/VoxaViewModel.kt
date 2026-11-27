@@ -39,6 +39,37 @@ class VoxaViewModel(app: VoxaApplication) : ViewModel() {
     val latestByShow: StateFlow<Map<Long, Long>> =
         repo.observeLatest().map { list -> list.associate { it.showId to it.latest } }.state(emptyMap())
 
+    /** Podcasts and audiobooks together, for screens that look a show up by id (show page, episode sheet). */
+    val everyShow: StateFlow<List<Show>?> = repo.observeEveryShow().state(null)
+    val audiobooks: StateFlow<List<Show>?> = repo.observeAudiobooks().state(null)
+    val audiobookEpisodes: StateFlow<List<Episode>> = repo.observeAudiobookEpisodes().state(emptyList())
+
+    private val _scanStatus = MutableStateFlow<String?>(null)
+    val scanStatus: StateFlow<String?> = _scanStatus
+    private var scanJob: Job? = null
+
+    /** Scan Documents/Audiobooks (needs All files access). Safe to call often: unchanged books are skipped. */
+    fun scanAudiobooks() {
+        if (!android.os.Environment.isExternalStorageManager()) return
+        if (scanJob?.isActive == true) return
+        scanJob = viewModelScope.launch {
+            _scanStatus.value = "Scanning…"
+            try {
+                repo.scanAudiobooks(java.io.File(android.os.Environment.getExternalStorageDirectory(), "Documents/Audiobooks")) { done, total ->
+                    _scanStatus.value = "Scanning $done/$total"
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // unreadable file or folder: keep what we have
+            } finally {
+                _scanStatus.value = null
+            }
+        }
+    }
+
+    fun restoreRemovedBooks() { repo.restoreIgnoredAudiobooks(); scanAudiobooks() }
+
     val recentEpisodes: StateFlow<List<Episode>> = repo.observeRecent().state(emptyList())
     val downloadedEpisodes: StateFlow<List<Episode>> = repo.observeDownloaded().state(emptyList())
     val downloadProgress = repo.downloadProgress

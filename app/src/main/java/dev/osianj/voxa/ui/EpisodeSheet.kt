@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.osianj.voxa.data.Episode
+import dev.osianj.voxa.data.isAudiobook
 
 /** Per-episode actions, opened from any episode's kebab (last screen of the mock). */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,7 +52,7 @@ fun EpisodeSheet(
 ) {
     val context = LocalContext.current
     val episode by remember(episodeId) { vm.repo.observeEpisode(episodeId) }.collectAsState(initial = null)
-    val shows by vm.shows.collectAsState()
+    val shows by vm.everyShow.collectAsState()
     val progress by vm.downloadProgress.collectAsState()
     val ep: Episode = episode ?: return
     val show = shows?.firstOrNull { it.id == ep.showId }
@@ -98,7 +99,8 @@ fun EpisodeSheet(
                     label = if (isCurrent && ps.isPlaying) "Pause" else "Play episode",
                 ) { togglePlay(vm, ps, ep, show); onDismiss() }
             }
-            if (ep.localPath == null) {
+            // a book chapter is a file you already have: nothing to download or remove
+            if (ep.localPath == null && show?.isAudiobook != true) {
                 if (downloading != null) {
                     SheetAction(Icons.Filled.Download, "Downloading ${(downloading * 100).toInt()}%", enabled = false) {}
                 } else {

@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.osianj.voxa.data.DownloadScope
+import dev.osianj.voxa.data.isAudiobook
 import dev.osianj.voxa.data.Episode
 import dev.osianj.voxa.data.Show
 
@@ -73,8 +74,9 @@ fun ShowScreen(
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("voxa", Context.MODE_PRIVATE) }
-    val shows by vm.shows.collectAsState()
+    val shows by vm.everyShow.collectAsState()
     val show = shows?.firstOrNull { it.id == showId }
+    val isBook = show?.isAudiobook == true
     val allEpisodes by remember(showId) { vm.episodes(showId) }.collectAsState(initial = emptyList())
     val progress by vm.downloadProgress.collectAsState()
 
@@ -107,9 +109,9 @@ fun ShowScreen(
                 IconButton(onClick = { topMenu = true }) { Icon(Icons.Filled.MoreVert, "More") }
                 DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
                     DropdownMenuItem(
-                        text = { Text("Refresh feed") },
+                        text = { Text(if (isBook) "Rescan library" else "Refresh feed") },
                         leadingIcon = { Icon(Icons.Filled.Refresh, null) },
-                        onClick = { topMenu = false; vm.refresh(showId) },
+                        onClick = { topMenu = false; if (isBook) vm.scanAudiobooks() else vm.refresh(showId) },
                     )
                 }
             }
@@ -119,9 +121,9 @@ fun ShowScreen(
 
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
-                Hero(show, onSubscribedClick = { confirmUnsubscribe = true }, onSettingsClick = { tabIndex = 2 })
+                Hero(show, isBook, onSubscribedClick = { confirmUnsubscribe = true }, onSettingsClick = { tabIndex = 2 })
             }
-            item { UnderlineTabs(ShowTabs, tabIndex) { tabIndex = it } }
+            item { UnderlineTabs(if (isBook) listOf("CHAPTERS", "ABOUT", "SETTINGS") else ShowTabs, tabIndex) { tabIndex = it } }
 
             when (tabIndex) {
                 0 -> {
@@ -131,7 +133,11 @@ fun ShowScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Caps(
-                                if (showHidden) "All episodes (incl. hidden)" else "All episodes",
+                                when {
+                                    isBook -> if (showHidden) "Chapters (incl. hidden)" else "Chapters"
+                                    showHidden -> "All episodes (incl. hidden)"
+                                    else -> "All episodes"
+                                },
                                 Modifier.weight(1f),
                             )
                             IconButton(onClick = {
@@ -143,7 +149,7 @@ fun ShowScreen(
                                     contentDescription = if (oldestFirst) "Oldest first" else "Newest first",
                                 )
                             }
-                            IconButton(onClick = { showDownloadDialog = true }) {
+                            if (!isBook) IconButton(onClick = { showDownloadDialog = true }) {
                                 Icon(Icons.Filled.Download, "Download episodes")
                             }
                         }
@@ -171,10 +177,13 @@ fun ShowScreen(
                             onMenu = { onEpisodeMenu(ep) },
                         )
                     }
+                    // a single .m4b carries its chapter list inside the file
+                    if (isBook && allEpisodes.size == 1) item { EmbeddedChapters(vm, allEpisodes[0], show, ps) }
                 }
                 1 -> item { AboutTab(show, allEpisodes.size) }
                 else -> item {
                     SettingsTab(
+                        isBook = isBook,
                         showHidden = showHidden,
                         onShowHidden = {
                             showHidden = it
@@ -183,7 +192,7 @@ fun ShowScreen(
                         onDownload = { showDownloadDialog = true },
                         folderLabel = downloads.folderLabel,
                         onFolder = { showFolderDialog = true },
-                        onRefresh = { vm.refresh(showId) },
+                        onRefresh = { if (isBook) vm.scanAudiobooks() else vm.refresh(showId) },
                         onUnsubscribe = { confirmUnsubscribe = true },
                     )
                 }
@@ -207,14 +216,19 @@ fun ShowScreen(
     if (confirmUnsubscribe && show != null) {
         AlertDialog(
             onDismissRequest = { confirmUnsubscribe = false },
-            title = { Text("Unsubscribe from ${show.title}?") },
-            text = { Text("This removes the show and deletes any downloaded episodes.") },
+            title = { Text(if (isBook) "Remove ${show.title}?" else "Unsubscribe from ${show.title}?") },
+            text = {
+                Text(
+                    if (isBook) "This only removes it from Voxa. Your audio files are not touched, and it won't come back on a rescan."
+                    else "This removes the show and deletes any downloaded episodes."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     confirmUnsubscribe = false
                     vm.removeShow(show.id)
                     onBack()
-                }) { Text("Unsubscribe", color = MaterialTheme.colorScheme.error) }
+                }) { Text(if (isBook) "Remove" else "Unsubscribe", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { confirmUnsubscribe = false }) { Text("Cancel") } },
         )
@@ -222,7 +236,7 @@ fun ShowScreen(
 }
 
 @Composable
-private fun Hero(show: Show, onSubscribedClick: () -> Unit, onSettingsClick: () -> Unit) {
+private fun Hero(show: Show, isBook: Boolean, onSubscribedClick: () -> Unit, onSettingsClick: () -> Unit) {
     val description = remember(show.description) { stripHtml(show.description) }
     Column {
         Row(
@@ -262,7 +276,7 @@ private fun Hero(show: Show, onSubscribedClick: () -> Unit, onSettingsClick: () 
             ) {
                 Icon(Icons.Filled.Check, null, tint = Ink, modifier = Modifier.size(16.dp))
                 Text(
-                    "  SUBSCRIBED",
+                    if (isBook) "  IN LIBRARY" else "  SUBSCRIBED",
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.Bold,
                     color = Ink,
@@ -355,8 +369,13 @@ private fun AboutTab(show: Show, episodeCount: Int) {
         if (description.isNotBlank()) Text(description, style = MaterialTheme.typography.bodyMedium)
         if (show.author.isNotBlank()) AboutRow("Author", show.author)
         AboutRow("Episodes", episodeCount.toString())
-        if (show.lastRefreshed > 0) AboutRow("Last refreshed", formatDate(show.lastRefreshed))
-        AboutRow("Feed", show.feedUrl)
+        if (show.isAudiobook) {
+            AboutRow("Added", formatDate(show.lastRefreshed))
+            AboutRow("Folder", show.sourcePath.orEmpty())
+        } else {
+            if (show.lastRefreshed > 0) AboutRow("Last refreshed", formatDate(show.lastRefreshed))
+            AboutRow("Feed", show.feedUrl)
+        }
     }
 }
 
@@ -370,6 +389,7 @@ private fun AboutRow(label: String, value: String) {
 
 @Composable
 private fun SettingsTab(
+    isBook: Boolean,
     showHidden: Boolean,
     onShowHidden: (Boolean) -> Unit,
     onDownload: () -> Unit,
@@ -379,17 +399,19 @@ private fun SettingsTab(
     onUnsubscribe: () -> Unit,
 ) {
     Column {
-        SettingsRow("Download episodes…", "Latest, unplayed or the entire show", onClick = onDownload)
-        SettingsRow("Download folder", folderLabel, onClick = onFolder)
-        SettingsRow("Refresh feed now", null, onClick = onRefresh)
+        if (!isBook) {
+            SettingsRow("Download episodes…", "Latest, unplayed or the entire show", onClick = onDownload)
+            SettingsRow("Download folder", folderLabel, onClick = onFolder)
+        }
+        SettingsRow(if (isBook) "Rescan library now" else "Refresh feed now", null, onClick = onRefresh)
         Row(
             Modifier.fillMaxWidth().clickable { onShowHidden(!showHidden) }.padding(horizontal = 20.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text("Show hidden episodes", style = MaterialTheme.typography.titleMedium)
+                Text(if (isBook) "Show hidden chapters" else "Show hidden episodes", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "So you can unhide them from the episode menu",
+                    if (isBook) "So you can unhide them from the chapter menu" else "So you can unhide them from the episode menu",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -405,7 +427,8 @@ private fun SettingsTab(
             )
         }
         HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
-        SettingsRow("Unsubscribe", "Removes the show and its downloads", onClick = onUnsubscribe, destructive = true)
+        if (isBook) SettingsRow("Remove from library", "Keeps your audio files", onClick = onUnsubscribe, destructive = true)
+        else SettingsRow("Unsubscribe", "Removes the show and its downloads", onClick = onUnsubscribe, destructive = true)
     }
 }
 
@@ -496,4 +519,38 @@ private fun DownloadDialog(
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
+}
+
+/** A single .m4b: its chapter list lives inside the file. Tap a chapter to start there. */
+@Composable
+private fun EmbeddedChapters(vm: VoxaViewModel, ep: Episode, show: Show, ps: PlayerUiState) {
+    val chapters by androidx.compose.runtime.produceState(emptyList<dev.osianj.voxa.data.Chapter>(), ep.chaptersUrl) {
+        val url = ep.chaptersUrl
+        value = if (url == null) emptyList() else try {
+            vm.repo.fetchChapters(url)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+    if (chapters.isEmpty()) return
+    val current = if (ps.mediaId == ep.id.toString()) chapters.indexOfLast { it.startMs <= ps.positionMs } else -1
+    Column {
+        Caps("In this book", Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp))
+        chapters.forEachIndexed { i, ch ->
+            Row(
+                Modifier.fillMaxWidth().clickable { vm.playback.play(ep.copy(positionMs = ch.startMs), show) }
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    formatClock(ch.startMs), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 12.dp),
+                )
+                Text(ch.title, style = MaterialTheme.typography.bodyMedium, fontWeight = if (i == current) FontWeight.Bold else FontWeight.Normal)
+            }
+            HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant)
+        }
+    }
 }
