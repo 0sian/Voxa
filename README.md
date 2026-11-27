@@ -15,6 +15,7 @@ Styled after the mock (cream paper, ink, lime accent, JetBrains Mono; follows sy
 - Player: skip silence and volume boost toggles (session commands handled in PlaybackService), Notes sheet with chapters (Podcasting 2.0 chapters JSON) and show notes
 - Backup & restore from the home menu: JSON (subscriptions, order, progress, played/hidden, settings) and OPML
 - Mono mix toggle (custom audio processor)
+- Books tab (audiobooks): scans `Documents/Audiobooks` (needs All files access, audio is only ever read). A folder of files is one book with a chapter per file; a single .m4b shows its embedded chapter list (chpl or QuickTime chapter track). Tap a book to play, long-press for chapters or remove. Long titles are shortened. Books never reach refresh, backup, OPML or Android Auto
 - Android Auto: Voxa is a media library (Podcasts > shows > episodes); playing from the car resumes the episode and queues the rest of the show. Sideloaded apps only show in Android Auto after enabling Developer settings > Unknown sources in the Android Auto app
 Untested on a real device beyond the first UI build.
 
@@ -32,7 +33,7 @@ Open the `voxa/` folder in Android Studio and sync. Min SDK 29. If Android Studi
 
 - Downloads: `DownloadWorker.enqueue(showId, scope, oldestFirst)` (latest N, all unplayed, or entire show) or `enqueueEpisode`; notification with progress and Cancel; Android 13+ asks for notification permission on first download
 - Download folder: picked with the system folder picker (Storage Access Framework); each show gets a subfolder, files are `yyyy-MM-dd - Title.ext`. Asked once on the first download; change it from the home menu or a show's Settings. `Episode.localPath` is a file path (app storage) or a content:// URI (chosen folder)
-- Room schema is version 2 (added episodes.chaptersUrl, migration 1->2), so builds install over each other
+- Room schema is version 3 (2->3 adds shows.kind, sourcePath and scanSig for audiobooks; migration tested on a copy of real data), so builds install over each other when signed with the same key
 - Debug APK is large (~68MB) because the full Material icon set is bundled; release builds with minification shrink it
 
 ## Not done yet
