@@ -124,8 +124,9 @@ class AudiobookScanner(private val ctx: Context, private val db: VoxaDatabase) {
         return out
     }
 
+    /** Changes when the files change, or when [SCAN_VERSION] is bumped so books are re-read with a better scanner. */
     private fun signature(files: List<File>): String =
-        sha(files.joinToString("|") { "${it.name}:${it.length()}:${it.lastModified()}" })
+        sha("v$SCAN_VERSION|" + files.joinToString("|") { "${it.name}:${it.length()}:${it.lastModified()}" })
 
     // ---- reading one book -------------------------------------------------------
 
@@ -229,6 +230,8 @@ class AudiobookScanner(private val ctx: Context, private val db: VoxaDatabase) {
 
     companion object {
         private const val KEY_IGNORED = "audiobook_ignored"
+        /** Bump whenever the scanner learns something new (chapters, covers, titles) so existing books are re-read once. */
+        private const val SCAN_VERSION = 2
         /** Sep 2001: chapters are ordered by this + index, and the UI never shows it as a date. */
         const val SYNTHETIC_EPOCH = 1_000_000_000_000L
         private val AUDIO = setOf("mp3", "m4b", "m4a", "aac", "ogg", "opus", "flac", "wav")

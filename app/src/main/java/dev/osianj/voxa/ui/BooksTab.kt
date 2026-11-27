@@ -54,7 +54,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.osianj.voxa.data.Episode
 import dev.osianj.voxa.data.Show
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 
 private data class BookStat(val totalSec: Long, val doneSec: Long) {
     val fraction: Float get() = if (totalSec <= 0) 0f else (doneSec.toFloat() / totalSec).coerceIn(0f, 1f)
@@ -63,13 +68,14 @@ private data class BookStat(val totalSec: Long, val doneSec: Long) {
 /** Audiobooks found in Documents/Audiobooks: one card per book, tap to open its chapters. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun BooksTab(vm: VoxaViewModel, onOpenShow: (Show) -> Unit) {
+fun BooksTab(vm: VoxaViewModel, ps: PlayerUiState, onOpenShow: (Show) -> Unit) {
     val context = LocalContext.current
     val books by vm.audiobooks.collectAsState()
     val episodes by vm.audiobookEpisodes.collectAsState()
     val status by vm.scanStatus.collectAsState()
     var hasAccess by remember { mutableStateOf(Environment.isExternalStorageManager()) }
     var toRemove by remember { mutableStateOf<Show?>(null) }
+    var cardMenu by remember { mutableStateOf<Long?>(null) }
     var menu by remember { mutableStateOf(false) }
 
     // coming back from the settings page: re-check the permission
@@ -91,6 +97,7 @@ fun BooksTab(vm: VoxaViewModel, onOpenShow: (Show) -> Unit) {
             )
         }
     }
+    val byShow = remember(episodes) { episodes.groupBy { it.showId } }
     val list = books ?: return
 
     Column(Modifier.fillMaxSize()) {
@@ -140,10 +147,43 @@ fun BooksTab(vm: VoxaViewModel, onOpenShow: (Show) -> Unit) {
             ) {
                 items(list, key = { it.id }) { book ->
                     val stat = stats[book.id]
+                    val chapters = byShow[book.id].orEmpty()
+                    val playingHere = chapters.any { ps.mediaId == it.id.toString() }
                     Column(
-                        Modifier.combinedClickable(onClick = { onOpenShow(book) }, onLongClick = { toRemove = book }),
+                        Modifier.combinedClickable(
+                            // tap plays: resumes where you left off, or starts at the first chapter; tap again to pause
+                            onClick = {
+                                val target = chapters.firstOrNull { ps.mediaId == it.id.toString() } ?: resumeTarget(chapters)
+                                if (target != null) togglePlay(vm, ps, target, book) else onOpenShow(book)
+                            },
+                            // hold for the chapter page and the remove option
+                            onLongClick = { cardMenu = book.id },
+                        ),
                     ) {
-                        Artwork(book.artworkUrl, Modifier.fillMaxWidth().aspectRatio(1f), corner = 8.dp, contentDescription = book.title)
+                        Box {
+                            Artwork(book.artworkUrl, Modifier.fillMaxWidth().aspectRatio(1f), corner = 8.dp, contentDescription = book.title)
+                            Box(
+                                Modifier.align(Alignment.BottomEnd).padding(8.dp).size(36.dp).clip(CircleShape).background(Lime),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    if (playingHere && ps.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                    if (playingHere && ps.isPlaying) "Pause" else "Play", tint = Ink, modifier = Modifier.size(22.dp),
+                                )
+                            }
+                            DropdownMenu(expanded = cardMenu == book.id, onDismissRequest = { cardMenu = null }) {
+                                DropdownMenuItem(
+                                    text = { Text("Chapters") },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, null) },
+                                    onClick = { cardMenu = null; onOpenShow(book) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Remove from library", color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = { Icon(Icons.Filled.DeleteOutline, null, tint = MaterialTheme.colorScheme.error) },
+                                    onClick = { cardMenu = null; toRemove = book },
+                                )
+                            }
+                        }
                         Spacer(Modifier.height(8.dp))
                         Text(book.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (book.author.isNotBlank()) {
@@ -169,6 +209,14 @@ fun BooksTab(vm: VoxaViewModel, onOpenShow: (Show) -> Unit) {
             dismissButton = { TextButton(onClick = { toRemove = null }) { Text("Cancel") } },
         )
     }
+}
+
+/** Where tapping a book should start: the chapter you were part-way through, else the first one you haven't finished, else the start. */
+private fun resumeTarget(chapters: List<Episode>): Episode? {
+    val ordered = chapters.filter { !it.hidden }.sortedBy { it.publishedAt }
+    return ordered.firstOrNull { it.positionMs > 0 && !it.played }
+        ?: ordered.firstOrNull { !it.played }
+        ?: ordered.firstOrNull()
 }
 
 @Composable

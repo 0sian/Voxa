@@ -143,7 +143,7 @@ fun HomeScreen(
                 onAddRss = { showAddDialog = true },
                 onOpenShow = onOpenShow,
             )
-            1 -> BooksTab(vm = vm, onOpenShow = onOpenShow)
+            1 -> BooksTab(vm = vm, ps = ps, onOpenShow = onOpenShow)
             2 -> EpisodesTab(
                 vm = vm, ps = ps,
                 episodes = vm.recentEpisodes.collectAsState().value,
