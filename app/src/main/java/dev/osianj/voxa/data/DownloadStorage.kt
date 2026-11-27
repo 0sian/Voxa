@@ -14,7 +14,38 @@ import java.util.Locale
 
 /** [Episode.localPath] is either an absolute file path (app storage) or a content:// URI (chosen folder). */
 fun localUri(path: String): Uri =
-    if (path.startsWith("content://")) Uri.parse(path) else Uri.fromFile(File(path))
+    directFile(path)?.let(Uri::fromFile)
+        ?: if (path.startsWith("content://")) Uri.parse(path) else Uri.fromFile(File(path))
+
+private const val EXTERNAL_STORAGE_DOCS = "content://com.android.externalstorage.documents/"
+
+/**
+ * "volume" and relative path of a file stored through the folder picker, e.g.
+ * .../tree/primary%3APodcasts/document/primary%3APodcasts%2FShow%2Fep.mp3 -> ("primary", "Podcasts/Show/ep.mp3").
+ * Null for anything else (app-storage paths, other providers, paths trying to climb out with "..").
+ */
+fun documentPathOf(path: String): Pair<String, String>? {
+    if (!path.startsWith(EXTERNAL_STORAGE_DOCS)) return null
+    val encoded = path.substringAfter("/document/", "")
+    if (encoded.isEmpty()) return null
+    val docId = java.net.URLDecoder.decode(encoded.replace("+", "%2B"), "UTF-8")
+    val volume = docId.substringBefore(':')
+    val rel = docId.substringAfter(':', "")
+    if (volume.isEmpty() || rel.isEmpty() || rel.split('/').any { it == ".." }) return null
+    return volume to rel
+}
+
+/**
+ * The real file behind a folder-picker download, when Voxa has "All files access". Android forgets the folder
+ * permission whenever the app is reinstalled, but the files are still there and this can read them directly.
+ * Null if there is no all-files access or the file isn't there.
+ */
+fun directFile(path: String): File? {
+    if (!android.os.Environment.isExternalStorageManager()) return null
+    val (volume, rel) = documentPathOf(path) ?: return null
+    val root = if (volume == "primary") android.os.Environment.getExternalStorageDirectory() else File("/storage/$volume")
+    return File(root, rel).takeIf { it.isFile }
+}
 
 /**
  * Where downloads go. By default the app's private storage; or a folder the user picks with the
@@ -90,6 +121,8 @@ class DownloadStorage(private val context: Context, private val internalDir: Fil
     }
 
     fun delete(path: String) {
+        // without the folder permission the picker route can't delete; the file itself can still be removed
+        directFile(path)?.let { if (it.delete()) return }
         if (path.startsWith("content://")) {
             runCatching { DocumentFile.fromSingleUri(context, Uri.parse(path))?.delete() }
         } else {
