@@ -17,7 +17,17 @@ data class Show(
     val artworkUrl: String? = null,
     val position: Int = 0,
     val lastRefreshed: Long = 0,
+    /** "podcast" (an RSS feed) or "audiobook" (a book on disk: one Show per book, its files are the episodes). */
+    @ColumnInfo(defaultValue = "podcast") val kind: String = KIND_PODCAST,
+    /** Audiobooks only: the folder (or single file) this book was scanned from. */
+    val sourcePath: String? = null,
+    /** Audiobooks only: fingerprint of the files, so an unchanged book isn't re-read on every scan. */
+    val scanSig: String? = null,
 )
+
+const val KIND_PODCAST = "podcast"
+const val KIND_AUDIOBOOK = "audiobook"
+val Show.isAudiobook: Boolean get() = kind == KIND_AUDIOBOOK
 
 @Entity(
     tableName = "episodes",

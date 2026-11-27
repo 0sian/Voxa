@@ -17,7 +17,8 @@ class VoxaApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         storage = DownloadStorage(this, filesDir)
-        repository = VoxaRepository(VoxaDatabase.build(this), storage)
+        val db = VoxaDatabase.build(this)
+        repository = VoxaRepository(db, storage, scanner = dev.osianj.voxa.data.AudiobookScanner(this, db))
         playback = PlaybackConnection(this)
         dev.osianj.voxa.data.RefreshWorker.schedule(this)
     }

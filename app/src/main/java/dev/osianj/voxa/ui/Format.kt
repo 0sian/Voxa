@@ -12,8 +12,11 @@ fun formatDuration(sec: Int): String = when {
     else -> "${sec}s"
 }
 
+/** Audiobook chapters are ordered by a synthetic timestamp in 2001-2004 (see AudiobookScanner); that is not a date to show. */
+const val SYNTHETIC_DATE_BELOW = 1_100_000_000_000L
+
 fun formatDate(ts: Long): String =
-    if (ts <= 0) "" else SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(ts))
+    if (ts <= 0 || ts < SYNTHETIC_DATE_BELOW) "" else SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(ts))
 
 /** "12 Apr 2024 • 1h 7m" */
 fun episodeMeta(publishedAt: Long, durationSec: Int): String =

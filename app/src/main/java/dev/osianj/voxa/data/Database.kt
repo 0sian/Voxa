@@ -12,11 +12,26 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ShowDao {
-    @Query("SELECT * FROM shows ORDER BY position ASC")
+    // observeShows/getAll are podcasts only on purpose: the refresh worker, backups, OPML and
+    // Android Auto all go through them, and none of those should ever see an audiobook.
+    @Query("SELECT * FROM shows WHERE kind = 'podcast' ORDER BY position ASC")
     fun observeShows(): Flow<List<Show>>
 
-    @Query("SELECT * FROM shows ORDER BY position ASC")
+    @Query("SELECT * FROM shows WHERE kind = 'podcast' ORDER BY position ASC")
     suspend fun getAll(): List<Show>
+
+    @Query("SELECT * FROM shows WHERE kind = 'audiobook' ORDER BY title COLLATE NOCASE ASC")
+    fun observeAudiobooks(): Flow<List<Show>>
+
+    @Query("SELECT * FROM shows WHERE kind = 'audiobook'")
+    suspend fun getAudiobooks(): List<Show>
+
+    /** Podcasts and audiobooks, for screens that look a show up by id. */
+    @Query("SELECT * FROM shows ORDER BY position ASC")
+    fun observeEveryShow(): Flow<List<Show>>
+
+    @Query("UPDATE shows SET title = :title, author = :author, artworkUrl = :artworkUrl, scanSig = :sig, lastRefreshed = :now WHERE id = :id")
+    suspend fun updateBook(id: Long, title: String, author: String, artworkUrl: String?, sig: String, now: Long)
 
     @Query("SELECT * FROM shows WHERE id = :id")
     suspend fun getShow(id: Long): Show?
@@ -39,8 +54,17 @@ interface ShowDao {
 
 @Dao
 interface EpisodeDao {
-    @Query("SELECT * FROM episodes WHERE deleted = 0 ORDER BY publishedAt DESC LIMIT 200")
+    @Query("SELECT e.* FROM episodes e JOIN shows s ON s.id = e.showId WHERE e.deleted = 0 AND s.kind = 'podcast' ORDER BY e.publishedAt DESC LIMIT 200")
     fun observeRecent(): Flow<List<Episode>>
+
+    @Query("SELECT e.* FROM episodes e JOIN shows s ON s.id = e.showId WHERE s.kind = 'audiobook'")
+    fun observeAudiobookEpisodes(): Flow<List<Episode>>
+
+    @Query("DELETE FROM episodes WHERE showId = :showId AND guid NOT IN (:keep)")
+    suspend fun deleteMissing(showId: Long, keep: List<String>)
+
+    @Query("UPDATE episodes SET title = :title, durationSec = :durationSec, audioUrl = :audioUrl, chaptersUrl = :chaptersUrl, publishedAt = :publishedAt WHERE showId = :showId AND guid = :guid")
+    suspend fun updateBookEpisode(showId: Long, guid: String, title: String, durationSec: Int, audioUrl: String, chaptersUrl: String?, publishedAt: Long)
 
     @Query("SELECT * FROM episodes WHERE localPath IS NOT NULL AND deleted = 0 ORDER BY publishedAt DESC")
     fun observeDownloaded(): Flow<List<Episode>>
@@ -92,19 +116,28 @@ interface EpisodeDao {
     suspend fun setPlayed(id: Long, played: Boolean)
 }
 
-@Database(entities = [Show::class, Episode::class], version = 2, exportSchema = false)
+@Database(entities = [Show::class, Episode::class], version = 3, exportSchema = false)
 abstract class VoxaDatabase : RoomDatabase() {
     abstract fun showDao(): ShowDao
     abstract fun episodeDao(): EpisodeDao
 
     companion object {
         fun build(context: Context): VoxaDatabase =
-            Room.databaseBuilder(context, VoxaDatabase::class.java, "voxa.db").addMigrations(MIGRATION_1_2).build()
+            Room.databaseBuilder(context, VoxaDatabase::class.java, "voxa.db").addMigrations(MIGRATION_1_2, MIGRATION_2_3).build()
     }
 }
 
 val MIGRATION_1_2 = object : androidx.room.migration.Migration(1, 2) {
     override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE episodes ADD COLUMN chaptersUrl TEXT")
+    }
+}
+
+/** Audiobooks: shows gain a kind, the folder they came from and a scan fingerprint. Existing rows are podcasts. */
+val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+    override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE shows ADD COLUMN kind TEXT NOT NULL DEFAULT 'podcast'")
+        db.execSQL("ALTER TABLE shows ADD COLUMN sourcePath TEXT")
+        db.execSQL("ALTER TABLE shows ADD COLUMN scanSig TEXT")
     }
 }

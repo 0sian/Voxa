@@ -15,6 +15,7 @@ import okhttp3.Request
 class VoxaRepository(
     private val db: VoxaDatabase,
     private val storage: DownloadStorage,
+    private val scanner: AudiobookScanner? = null,
     private val http: OkHttpClient = OkHttpClient(),
 ) {
     /**
@@ -30,6 +31,15 @@ class VoxaRepository(
     private val episodes get() = db.episodeDao()
 
     fun observeShows(): Flow<List<Show>> = shows.observeShows()
+    fun observeAudiobooks(): Flow<List<Show>> = shows.observeAudiobooks()
+    fun observeEveryShow(): Flow<List<Show>> = shows.observeEveryShow()
+    fun observeAudiobookEpisodes(): Flow<List<Episode>> = episodes.observeAudiobookEpisodes()
+
+    /** Scan the audiobooks folder. Books are added, updated or dropped; audio files are only ever read. */
+    suspend fun scanAudiobooks(root: java.io.File, onProgress: (Int, Int) -> Unit = { _, _ -> }) =
+        scanner?.scan(root, onProgress)
+
+    fun restoreIgnoredAudiobooks() = scanner?.clearIgnored()
     fun observeEpisodes(showId: Long): Flow<List<Episode>> = episodes.observeEpisodes(showId)
     fun observeEpisode(id: Long): Flow<Episode?> = episodes.observeEpisode(id)
     fun observeRecent(): Flow<List<Episode>> = episodes.observeRecent()
@@ -59,6 +69,7 @@ class VoxaRepository(
     /** Re-reads the feed. Returns the episodes that weren't known before (for notifications). */
     suspend fun refresh(showId: Long): List<ParsedEpisode> = withContext(Dispatchers.IO) {
         val show = shows.getShow(showId) ?: return@withContext emptyList()
+        if (show.kind == KIND_AUDIOBOOK) return@withContext emptyList() // books are rescanned, not fetched
         val feed = fetch(show.feedUrl)
         shows.updateMeta(showId, feed.title, feed.author, feed.description, feed.artworkUrl, System.currentTimeMillis())
         storeEpisodes(showId, feed)
@@ -73,6 +84,8 @@ class VoxaRepository(
 
     /** Podcasting 2.0 chapters JSON: {"chapters":[{"startTime":0,"title":"Intro"}]}. */
     suspend fun fetchChapters(url: String): List<Chapter> = withContext(Dispatchers.IO) {
+        // an audiobook file with its chapter list inside it (m4b)
+        if (url.startsWith("embedded:")) return@withContext Mp4Chapters.read(java.io.File(url.removePrefix("embedded:")))
         val request = Request.Builder().url(url).build()
         http.newCall(request).execute().use { response ->
             check(response.isSuccessful) { "Chapters returned HTTP ${response.code}" }
@@ -90,6 +103,12 @@ class VoxaRepository(
     /** Gear menu > Remove: unsubscribes and deletes any downloaded audio. */
     suspend fun removeShow(showId: Long) = withContext(Dispatchers.IO) {
         val show = shows.getShow(showId)
+        if (show?.kind == KIND_AUDIOBOOK) {
+            // Remove from the library only. The audio files belong to the user and are never deleted.
+            scanner?.ignore(show)
+            shows.delete(showId)
+            return@withContext
+        }
         episodes.getDownloaded(showId).forEach { it.localPath?.let(storage::delete) }
         if (show != null) storage.deleteShowFolderIfEmpty(show)
         shows.delete(showId)
@@ -109,6 +128,7 @@ class VoxaRepository(
         /** Called with 0f..1f for the current episode, at most once per percent. */
         onProgress: (Float) -> Unit = {},
     ): Int = withContext(Dispatchers.IO) {
+        if (shows.getShow(showId)?.kind == KIND_AUDIOBOOK) return@withContext 0 // already on the phone
         val pending = episodes.getUndownloaded(showId, Int.MAX_VALUE) // newest first, non-hidden
         val chosen = when (scope) {
             is DownloadScope.Latest -> pending.take(scope.count)
@@ -133,6 +153,7 @@ class VoxaRepository(
     suspend fun downloadEpisode(episode: Episode, onProgress: (Float) -> Unit = {}) =
         withContext(Dispatchers.IO) {
             val show = shows.getShow(episode.showId) ?: error("Show no longer exists")
+            if (show.kind == KIND_AUDIOBOOK) return@withContext // nothing to download, and nothing of the user's to overwrite
             var dest: DownloadStorage.Destination? = null
             var saved = false
             try {
@@ -177,6 +198,8 @@ class VoxaRepository(
 
     /** Edit mode: delete just the downloaded file, keep the episode (streams again). */
     suspend fun deleteDownload(episode: Episode) = withContext(Dispatchers.IO) {
+        // an audiobook episode is the user's own file, not a download: never delete it
+        if (shows.getShow(episode.showId)?.kind == KIND_AUDIOBOOK) return@withContext
         episode.localPath?.let(storage::delete)
         episodes.setLocalPath(episode.id, null)
     }
