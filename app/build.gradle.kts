@@ -18,6 +18,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // side by side with the real Voxa: a dev build never overwrites it
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+        }
         release {
             isMinifyEnabled = false
         }
