@@ -57,13 +57,13 @@ class AudiobookScanner(private val ctx: Context, private val db: VoxaDatabase) {
             val now = System.currentTimeMillis()
             db.withTransaction {
                 val showId = if (old != null) {
-                    shows.updateBook(old.id, book.title, book.author, book.artworkUrl, sig, now)
+                    shows.updateBook(old.id, book.title, book.author, book.description, book.artworkUrl, sig, now)
                     updated++
                     old.id
                 } else {
                     val id = shows.insert(
                         Show(
-                            feedUrl = "audiobook:${c.path}", title = book.title, author = book.author,
+                            feedUrl = "audiobook:${c.path}", title = book.title, author = book.author, description = book.description,
                             artworkUrl = book.artworkUrl, position = shows.nextPosition(), lastRefreshed = now,
                             kind = KIND_AUDIOBOOK, sourcePath = c.path, scanSig = sig,
                         )
@@ -131,7 +131,7 @@ class AudiobookScanner(private val ctx: Context, private val db: VoxaDatabase) {
     // ---- reading one book -------------------------------------------------------
 
     private class Chapter(val guid: String, val title: String, val uri: String, val durationSec: Int, val chaptersUrl: String?, val order: Long)
-    private class Book(val title: String, val author: String, val artworkUrl: String?, val chapters: List<Chapter>)
+    private class Book(val title: String, val author: String, val artworkUrl: String?, val chapters: List<Chapter>, val description: String = "")
 
     private fun read(c: Candidate): Book {
         val single = c.files.size == 1
@@ -143,6 +143,7 @@ class AudiobookScanner(private val ctx: Context, private val db: VoxaDatabase) {
         val title = (first.album.takeIf { it.isNotBlank() } ?: if (single) first.title.takeIf { it.isNotBlank() } else null)
             ?: folderName ?: fileName
         val author = first.author
+        val fullTitle = AudiobookTitles.full(title)
 
         // tag titles are only useful when every file has its own; "Book Title" on all 40 files is not a chapter name
         val titleTags = tags.map { it.title }
@@ -150,7 +151,7 @@ class AudiobookScanner(private val ctx: Context, private val db: VoxaDatabase) {
 
         val chapters = c.files.mapIndexed { i, f ->
             val chapterTitle = when {
-                single -> title
+                single -> AudiobookTitles.short(title)
                 usableTitles -> titleTags[i]
                 else -> f.nameWithoutExtension.replace('_', ' ').replace(Regex("^\\s*\\d+\\s*[-._)]*\\s*(?=\\S)"), "").trim().ifEmpty { "Part ${i + 1}" }
             }
@@ -162,7 +163,7 @@ class AudiobookScanner(private val ctx: Context, private val db: VoxaDatabase) {
                 order = SYNTHETIC_EPOCH + i * 60_000L,
             )
         }
-        return Book(title, author, cover(c, title), chapters)
+        return Book(AudiobookTitles.short(title), author, cover(c, title), chapters, description = fullTitle.takeIf { it != AudiobookTitles.short(title) }.orEmpty())
     }
 
     private class Tags(val album: String, val title: String, val author: String, val durationMs: Long)
@@ -231,7 +232,7 @@ class AudiobookScanner(private val ctx: Context, private val db: VoxaDatabase) {
     companion object {
         private const val KEY_IGNORED = "audiobook_ignored"
         /** Bump whenever the scanner learns something new (chapters, covers, titles) so existing books are re-read once. */
-        private const val SCAN_VERSION = 2
+        private const val SCAN_VERSION = 3
         /** Sep 2001: chapters are ordered by this + index, and the UI never shows it as a date. */
         const val SYNTHETIC_EPOCH = 1_000_000_000_000L
         private val AUDIO = setOf("mp3", "m4b", "m4a", "aac", "ogg", "opus", "flac", "wav")

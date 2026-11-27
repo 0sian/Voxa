@@ -30,8 +30,8 @@ interface ShowDao {
     @Query("SELECT * FROM shows ORDER BY position ASC")
     fun observeEveryShow(): Flow<List<Show>>
 
-    @Query("UPDATE shows SET title = :title, author = :author, artworkUrl = :artworkUrl, scanSig = :sig, lastRefreshed = :now WHERE id = :id")
-    suspend fun updateBook(id: Long, title: String, author: String, artworkUrl: String?, sig: String, now: Long)
+    @Query("UPDATE shows SET title = :title, author = :author, description = :description, artworkUrl = :artworkUrl, scanSig = :sig, lastRefreshed = :now WHERE id = :id")
+    suspend fun updateBook(id: Long, title: String, author: String, description: String, artworkUrl: String?, sig: String, now: Long)
 
     @Query("SELECT * FROM shows WHERE id = :id")
     suspend fun getShow(id: Long): Show?
