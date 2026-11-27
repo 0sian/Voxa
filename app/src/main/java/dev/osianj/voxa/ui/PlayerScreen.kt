@@ -76,6 +76,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.osianj.voxa.data.Episode
+import dev.osianj.voxa.data.isAudiobook
 import kotlinx.coroutines.delay
 
 /** Full-screen player: artwork, seek bar, -10 / play / +30, and speed / sleep / download / queue. */
@@ -110,6 +111,7 @@ fun PlayerScreen(
     val skipSilence by vm.skipSilence.collectAsState()
     val volumeBoost by vm.volumeBoost.collectAsState()
     val monoMix by vm.mono.collectAsState()
+    val everyShow by vm.everyShow.collectAsState()
 
     val fraction = if (ps.durationMs > 0) (ps.positionMs.toFloat() / ps.durationMs).coerceIn(0f, 1f) else 0f
     val shownMs = drag?.let { (it * ps.durationMs).toLong() } ?: ps.positionMs
@@ -231,7 +233,9 @@ fun PlayerScreen(
 
                 val ep: Episode? = episode
                 val fractionDownloading = episodeId?.let { progress[it] }
-                PlayerAction(
+                // an audiobook is already a file on the phone: nothing to download
+                val isBook = everyShow?.firstOrNull { it.id == ep?.showId }?.isAudiobook == true
+                if (!isBook) PlayerAction(
                     label = when {
                         ep?.localPath != null -> "Downloaded"
                         fractionDownloading != null -> "${(fractionDownloading * 100).toInt()}%"
